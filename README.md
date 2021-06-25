@@ -90,8 +90,7 @@ sudo yum -y install jq gettext bash-completion moreutils
 
 
 ```
-$ git clone https://github.com/superyhee/media-processor.git
-```
+$ git clone https://github.com/superyhee/serverless-live-streaming.git
 
 运行setup.sh一键部署
 
