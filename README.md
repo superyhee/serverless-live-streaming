@@ -37,13 +37,13 @@ AWS容器直播方案是一个端到端的基于 AWS ECS Fargate的无服务直�
 
 **视频接入服务：**
 高可用代理服务器集群，通过ECS Service保证节点数量，提供RTMP推流地址和海量设备的接入，采用轻量级HAPoxy,支持rtmp，提供统一的推流地址：rtmp:// DNS Name /stream/<stream key>
-  
+
 **视频网关服务：**
 基于Node media server实现高性能轻量级rtmp server，支持rtmp，rtmps推流接入，维护推流状态并将保存元数据信息，基于元数据模块的会话管理，基于事件回调维护推流客户端状态，检测客户端上下线，并根据状态调度ECS 任务
-  
+
 **元数据管理：**
 使用dynamodb管理视频流元数据，通过API gateway提供元数据的CRUD管理的Restful API；动态设置视频流处理参数；自动生成唯一推流channel;通过API得到推流和拉流URL
-  
+
 **视频处理服务：**
 基于Fargate实现视频转码，直播，录制，分片等功能，ECS Server自动管理流媒体服务器集群的数量和弹性伸缩，提供如下功能
 
@@ -91,6 +91,7 @@ sudo yum -y install jq gettext bash-completion moreutils
 
 ```
 $ git clone https://github.com/superyhee/serverless-live-streaming.git
+```
 
 运行setup.sh一键部署
 
