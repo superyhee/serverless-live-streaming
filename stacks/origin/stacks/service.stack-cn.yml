@@ -1,0 +1,320 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Live Streaming Origin
+Parameters:
+
+  VPCStack:
+    Default: 'video-streaming-vpc'
+    Type: String
+    Description: VPC Stack Name
+
+  SecurityStack:
+    Default: 'video-streaming-security'
+    Type: String
+    Description: Security Stack Name
+
+  ECSStack:
+    Default: 'video-streaming-ecs'
+    Type: String
+    Description: ECS Stack Name
+
+  RedisStack:
+    Default: 'video-streaming-redis'
+    Type: String
+    Description: Redis Stack Name
+
+  DesiredCount:
+    Type: Number
+    Default: '1'
+    Description: Desired task count
+
+  Version:
+    Type: String
+    Description: Service version
+
+  TLD:
+    Type: String
+    Default: finbits.io
+
+  Domain:
+    Type: String
+    Default: live.finbits.io
+
+  SSLArn:
+    Type: String
+    Default: 'arn:aws-cn:acm-pca:us-east-1:741040131740:certificate-authority/326cdf5b-8db4-4fb4-abd3-a59c14f3f874'
+
+Resources:
+
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref AWS::StackName
+
+
+  # Task Role
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ecs-task-${AWS::StackName}-${AWS::Region}
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+            Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ecs-service-${AWS::StackName}-${AWS::Region}
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - '*'
+                Resource:
+                  - '*'
+
+  # A role needed by ECS
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ecs-execution-${AWS::StackName}-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws-cn:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref AWS::StackName
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      # 256 (.25 vCPU) - Available memory values: 0.5GB, 1GB, 2GB
+      # 512 (.5 vCPU) - Available memory values: 1GB, 2GB, 3GB, 4GB
+      # 1024 (1 vCPU) - Available memory values: 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB
+      # 2048 (2 vCPU) - Available memory values: Between 4GB and 16GB in 1GB increments
+      # 4096 (4 vCPU) - Available memory values: Between 8GB and 30GB in 1GB increments
+      Cpu: 256
+      # 0.5GB, 1GB, 2GB - Available cpu values: 256 (.25 vCPU)
+      # 1GB, 2GB, 3GB, 4GB - Available cpu values: 512 (.5 vCPU)
+      # 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB - Available cpu values: 1024 (1 vCPU)
+      # Between 4GB and 16GB in 1GB increments - Available cpu values: 2048 (2 vCPU)
+      # Between 8GB and 30GB in 1GB increments - Available cpu values: 4096 (4 vCPU)
+      Memory: 0.5GB
+      ContainerDefinitions:
+        - Name: !Ref AWS::StackName
+          Image: "public.ecr.aws/l6z1v6o9/video-streaming-origin"
+          PortMappings:
+            - ContainerPort: 80
+          Environment:
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: ENV
+              Value: 'production'
+            - Name: NODE_ENV
+              Value: 'production'
+            - Name: AWS_ACCOUNT_ID
+              Value: !Ref AWS::AccountId
+            - Name: CACHE_DOMAIN
+              Value: 
+                Fn::ImportValue:
+                  !Sub "${RedisStack}-RedisCluster"
+
+
+  #
+  # Load Balancers
+  #
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${AWS::StackName}-lb
+      Subnets:
+        - Fn::ImportValue:
+            !Sub "${VPCStack}-PublicSubnet1ID"
+        - Fn::ImportValue:
+            !Sub "${VPCStack}-PublicSubnet2ID"
+      SecurityGroups:
+        - Fn::ImportValue:
+            !Sub '${SecurityStack}-OriginLoadBalancerSecurityGroup'
+
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LoadBalancer
+    Properties:
+      Name: !Sub ${AWS::StackName}
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-VPCID"
+      Port: 80
+      Protocol: HTTP
+      Matcher:
+        HttpCode: 200-299
+      TargetType: ip
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: '/healthcheck'
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
+
+  LoadBalancerListenerHttp:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - LoadBalancer
+      - DefaultTargetGroup
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: 'HTTP'
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref DefaultTargetGroup
+
+  # LoadBalancerListenerHttps:
+  #   Type: AWS::ElasticLoadBalancingV2::Listener
+  #   DependsOn:
+  #     - LoadBalancer
+  #     - DefaultTargetGroup
+  #   Properties:
+  #     LoadBalancerArn: !Ref LoadBalancer
+  #     Port: 443
+  #     Protocol: 'HTTPS'
+  #     Certificates:
+  #       - CertificateArn: !Ref SSLArn
+  #     DefaultActions:
+  #       - Type: forward
+  #         TargetGroupArn: !Ref DefaultTargetGroup
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: 
+      - LoadBalancer
+      - DefaultTargetGroup
+      - LoadBalancerListenerHttp
+      # - LoadBalancerListenerHttps
+    Properties:
+      ServiceName: !Ref AWS::StackName
+      Cluster:
+        Fn::ImportValue:
+          !Sub "${ECSStack}-ECSCluster"
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      PlatformVersion: 1.4.0
+      NetworkConfiguration: 
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - Fn::ImportValue:
+                !Sub "${VPCStack}-PublicSubnet1ID"
+            - Fn::ImportValue:
+                !Sub "${VPCStack}-PublicSubnet2ID"
+          SecurityGroups:
+            - Fn::ImportValue:
+                !Sub '${SecurityStack}-OriginContainerSecurityGroup'
+      HealthCheckGracePeriodSeconds: 30
+      LoadBalancers:
+        - ContainerName: !Ref AWS::StackName
+          ContainerPort: 80
+          TargetGroupArn: !Ref DefaultTargetGroup
+
+  #
+  # CloudFront
+  #
+  CDN:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        # Aliases:
+        #   - !Ref Domain
+        Enabled: true
+        PriceClass: 'PriceClass_All'
+        HttpVersion: 'http2'
+        CustomErrorResponses:
+          - ErrorCachingMinTTL: 0
+            ErrorCode: 404
+        Origins:
+          - DomainName: !GetAtt LoadBalancer.DNSName
+            Id: LB
+            CustomOriginConfig:
+              OriginProtocolPolicy: match-viewer
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - HEAD
+            - GET
+            - OPTIONS
+          CachedMethods:
+            - HEAD
+            - GET
+            - OPTIONS
+          TargetOriginId: LB
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: none
+            Headers:
+              - 'Origin'
+              - 'Access-Control-Request-Headers'
+              - 'Access-Control-Request-Method'
+              - 'Host'
+          ViewerProtocolPolicy: "allow-all"
+          MinTTL: 0
+          DefaultTTL: 86400
+          MaxTTL: 31536000
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+        # ViewerCertificate:
+        #   SslSupportMethod: sni-only
+        #   MinimumProtocolVersion: TLSv1
+        #   AcmCertificateArn: !Ref SSLArn
+
+#   #
+#   # Route53 DNS record set to map our domain to our CDN
+#   #
+#   DomainDNS:
+#     Type: AWS::Route53::RecordSetGroup
+#     Properties:
+#       HostedZoneName: !Sub '${TLD}.'
+#       RecordSets:
+#         - Name: !Ref Domain
+#           Type: 'A'
+#           AliasTarget:
+#             HostedZoneId: 'Z2FDTNDATAQYW2' # http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-route53-aliastarget.html#cfn-route53-aliastarget-hostedzoneid
+#             DNSName: !GetAtt CDN.DomainName
+
+Outputs:
+  Service:
+    Value: !Ref 'Service'
+    Export:
+      Name: !Sub '${AWS::StackName}-Service'
+  TaskDefinition:
+    Value: !Ref 'TaskDefinition'
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskDefinition'
+  CloudWatchLogsGroup:
+    Value: !Ref 'CloudWatchLogsGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudWatchLogsGroup'
+  # Domain:
+  #   Value: !Ref 'Domain'
+  #   Export:
+  #     Name: !Sub '${AWS::StackName}-Domain'
+  CDNDomain:
+    Value: !GetAtt CDN.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-CDNDomain'
+  LBDomain:
+    Value: !GetAtt LoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-LBDomain'

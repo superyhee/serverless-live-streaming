@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Cluster
+Parameters:
+  Name:
+    Type: String
+    Description: Name of ECS cluster.
+
+Resources:
+  
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref Name
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+Outputs:
+  ECSCluster:
+    Value: !Ref 'ECSCluster'
+    Export:
+      Name: !Sub '${AWS::StackName}-ECSCluster'

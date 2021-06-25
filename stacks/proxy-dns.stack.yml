@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Proxy DNS Resources
+
+#
+# CloudFormation input parameters
+#
+Parameters:
+  TLD:
+    Type: String
+    Description: TLD name needed by Route53 to perform DNS (example.com)
+    Default: 'finbits.io'
+  Domain:
+    Type: String
+    Description: Domain name for your website (example.com)
+    Default: 'rtmp.finbits.io'
+  Proxy1:
+    Type: String
+    Description: Proxy Server 1 IP
+
+Resources:
+  
+  DomainDNS:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneName: !Sub '${TLD}.'
+      RecordSets:
+        - Name: !Ref Domain
+          Type: 'A'
+          TTL: 60
+          ResourceRecords:
+            - !Ref Proxy1
+
+Outputs:
+  Domain:
+    Value: !Ref 'Domain'
+    Export:
+      Name: !Sub '${AWS::StackName}-Domain'

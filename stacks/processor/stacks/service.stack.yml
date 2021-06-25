@@ -1,0 +1,176 @@
+Description: >
+  (SO8015) - live stream solution. Version v1.0.0
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Live Streaming Server
+Parameters:
+
+  VPCStack:
+    Default: 'video-streaming-vpc'
+    Type: String
+    Description: VPC Stack Name
+
+  SecurityStack:
+    Default: 'video-streaming-security'
+    Type: String
+    Description: Security Stack Name
+
+  EFSStack:
+    Default: 'video-streaming-efs'
+    Type: String
+    Description: EFS Stack Name
+
+  ECSStack:
+    Default: 'video-processing-ecs'
+    Type: String
+    Description: ECS Stack Name
+
+  RedisStack:
+    Default: 'video-streaming-redis'
+    Type: String
+    Description: Redis Stack Name
+
+  AssetsStack:
+    Default: 'video-streaming-assets'
+    Type: String
+    Description: Assets Stack Name
+
+  DesiredCount:
+    Type: Number
+    Default: '2'
+    Description: Desired task count
+
+  Version:
+    Type: String
+    Description: Service version
+
+  RtmpPort:
+    Type: String
+    Description: Rtmp Port
+    Default: 1935
+
+  HttpPort:
+    Type: String
+    Description: Http Port
+    Default: 8000
+
+Resources:
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref AWS::StackName
+      RetentionInDays: 365
+
+  # Task Role
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ecs-task-${AWS::StackName}-${AWS::Region}
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+            Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ecs-service-${AWS::StackName}-${AWS::Region}
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - '*'
+                Resource:
+                  - '*'
+
+  # A role needed by ECS
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ecs-execution-${AWS::StackName}-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+  
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref AWS::StackName
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      # 256 (.25 vCPU) - Available memory values: 0.5GB, 1GB, 2GB
+      # 512 (.5 vCPU) - Available memory values: 1GB, 2GB, 3GB, 4GB
+      # 1024 (1 vCPU) - Available memory values: 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB
+      # 2048 (2 vCPU) - Available memory values: Between 4GB and 16GB in 1GB increments
+      # 4096 (4 vCPU) - Available memory values: Between 8GB and 30GB in 1GB increments
+      Cpu: 2048
+      # 0.5GB, 1GB, 2GB - Available cpu values: 256 (.25 vCPU)
+      # 1GB, 2GB, 3GB, 4GB - Available cpu values: 512 (.5 vCPU)
+      # 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB - Available cpu values: 1024 (1 vCPU)
+      # Between 4GB and 16GB in 1GB increments - Available cpu values: 2048 (2 vCPU)
+      # Between 8GB and 30GB in 1GB increments - Available cpu values: 4096 (4 vCPU)
+      Memory: 4GB
+      volumes:
+       - efsVolumeConfiguration:
+          fileSystemId: 
+                Fn::ImportValue:
+                  !Sub "${EFSStack}-EFS"
+          transitEncryption: DISABLED
+          rootDirectory: "/"
+         name: media
+      ContainerDefinitions:
+        - Name: !Ref AWS::StackName
+          Image: "public.ecr.aws/l6z1v6o9/video-streaming-processor"
+          PortMappings:
+            - ContainerPort: !Ref RtmpPort
+              Protocol: tcp
+            - ContainerPort: !Ref HttpPort
+              Protocol: tcp
+          Environment:
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: ENV
+              Value: 'production'
+            - Name: NODE_ENV
+              Value: 'production'
+            - Name: AWS_ACCOUNT_ID
+              Value: !Ref AWS::AccountId
+            - Name: ASSETS_BUCKET
+              Value:
+                Fn::ImportValue:
+                  !Sub "${AssetsStack}-AssetsBucket"
+            - Name: CACHE_DOMAIN
+              Value: 
+                Fn::ImportValue:
+                  !Sub "${RedisStack}-RedisCluster"
+            - Name: MEDIA_ROOT
+              Value: '/usr/src/app/media'
+          mountPoints:
+            - containerPath: "/media"
+              sourceVolume: media
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AWS::StackName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+Outputs:
+  TaskDefinition:
+    Value: !Ref 'TaskDefinition'
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskDefinition'
+  CloudWatchLogsGroup:
+    Value: !Ref 'CloudWatchLogsGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudWatchLogsGroup'

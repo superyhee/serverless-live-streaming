@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Security'
+
+Parameters:
+  VPCStack:
+    Default: 'video-streaming-vpc'
+    Type: String
+    Description: VPC Stack Name
+
+
+Resources:
+
+  #
+  # Redis
+  #
+
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to Elasticache cluster
+      VpcId:
+        Fn::ImportValue:
+          !Sub '${VPCStack}-VPCID'
+
+  RedisSecurityGroupIngressOrigin:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Access to Redis from the Origin
+      GroupId: !Ref RedisSecurityGroup
+      SourceSecurityGroupId: !Ref OriginContainerSecurityGroup
+      IpProtocol: -1
+
+  RedisSecurityGroupIngressServer:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Access to Redis from the Server
+      GroupId: !Ref RedisSecurityGroup
+      SourceSecurityGroupId: !Ref ServerContainerSecurityGroup
+      IpProtocol: -1
+
+  #
+  # Server
+  #
+  ServerLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-VPCID"
+      GroupDescription: Access to the server Load Balancer
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1935
+          ToPort: 1935
+          CidrIp: 0.0.0.0/0
+        # - IpProtocol: tcp
+        #   FromPort: 443
+        #   ToPort: 443
+        #   CidrIp: 0.0.0.0/0
+
+  ServerContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the Server containers
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1935
+          ToPort: 1935
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: 0.0.0.0/0
+
+  ServerSecurityGroupIngressLoadBalancer:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Access to the Server from the Proxy
+      GroupId: !Ref ServerContainerSecurityGroup
+      SourceSecurityGroupId: !Ref ServerLoadBalancerSecurityGroup
+      IpProtocol: -1
+
+  ServerSecurityGroupIngressProxy:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Access to the Server from the Proxy
+      GroupId: !Ref ServerContainerSecurityGroup
+      SourceSecurityGroupId: !Ref ProxyContainerSecurityGroup
+      IpProtocol: -1
+
+  ServerSecurityGroupIngressOrigin:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Access to the Server from the Origin
+      GroupId: !Ref ServerContainerSecurityGroup
+      SourceSecurityGroupId: !Ref OriginContainerSecurityGroup
+      IpProtocol: -1
+
+  ServerSecurityGroupIngressProcessor:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Access to the Server from the Process
+      GroupId: !Ref ServerContainerSecurityGroup
+      SourceSecurityGroupId: !Ref ServerContainerSecurityGroup
+      IpProtocol: -1
+
+  #
+  # Origin
+  #
+
+  OriginLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-VPCID"
+      GroupDescription: Access to the Origin Load Balancer
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  OriginContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the Origin containers
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref OriginLoadBalancerSecurityGroup
+
+  #
+  # Proxy
+  #
+
+  ProxyContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the Proxy containers
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1935
+          ToPort: 1935
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        
+
+
+Outputs:
+  RedisSecurityGroup:
+    Value: !Ref 'RedisSecurityGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-RedisSecurityGroup'
+  ServerLoadBalancerSecurityGroup:
+    Value: !Ref 'ServerLoadBalancerSecurityGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-ServerLoadBalancerSecurityGroup'
+  OriginLoadBalancerSecurityGroup:
+    Value: !Ref 'OriginLoadBalancerSecurityGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-OriginLoadBalancerSecurityGroup'
+  OriginContainerSecurityGroup:
+    Value: !Ref 'OriginContainerSecurityGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-OriginContainerSecurityGroup'
+  ProxyContainerSecurityGroup:
+    Value: !Ref 'ProxyContainerSecurityGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-ProxyContainerSecurityGroup'
+  ServerContainerSecurityGroup:
+    Value: !Ref 'ServerContainerSecurityGroup'
+    Export:
+      Name: !Sub '${AWS::StackName}-ServerContainerSecurityGroup'

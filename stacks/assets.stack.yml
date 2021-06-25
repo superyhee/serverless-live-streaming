@@ -1,0 +1,25 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Asset Resources
+
+Resources: 
+          
+  #
+  # Bucket
+  #
+  AssetsBucket:
+    Description: S3 Bucket
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: 'Private'
+
+  StaticBucket:
+    Description: S3 Bucket
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: 'Private'
+
+Outputs:
+  AssetsBucket:
+    Value: !Ref 'AssetsBucket'
+    Export:
+      Name: !Sub '${AWS::StackName}-AssetsBucket'

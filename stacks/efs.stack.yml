@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: EFS example setup
+Parameters:
+  VPCStack:
+    Default: 'video-streaming-vpc'
+    Type: String
+    Description: VPC Stack Name
+
+Resources:
+
+  EFSFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      FileSystemTags:
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+      # PerformanceMode: maxIO
+
+  EFSMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-PublicSubnet1ID"
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  EFSMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-PublicSubnet2ID"
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allowing access to EFS
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${VPCStack}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: 
+            Fn::ImportValue:
+              !Sub 'video-streaming-security-ServerContainerSecurityGroup'
+
+Outputs:
+  EFS:
+    Description: The created EFS 
+    Value: !Ref EFSFileSystem
+    Export:
+      Name: !Sub '${AWS::StackName}-EFS'
+
+  EFSMountTarget1:
+    Description: The EFS MountTarget
+    Value: !Ref EFSMountTarget1
+
+  EFSMountTarget2:
+    Description: The EFS MountTarget
+    Value: !Ref EFSMountTarget2
+
