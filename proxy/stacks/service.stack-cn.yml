@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Live Streaming Proxy
+Description: "(SO8015) - Contruct full functional live video and VOD platform with cloud native services in AWS. Version v1.0.0"
 Parameters:
 
   VPCStack:

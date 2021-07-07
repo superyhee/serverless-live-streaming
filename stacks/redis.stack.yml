@@ -17,7 +17,7 @@ Parameters:
   NodeType:
     Type: "String"
     Description: "Compute type to use for cache nodes."
-    Default: 'cache.t2.micro'
+    Default: 'cache.t3.micro'
   NumCacheNodes:
     Type: "String"
     Description: "Number of cache nodes"
