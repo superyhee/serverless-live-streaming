@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Live Steaming Metadata
+
+Globals:
+  Function:
+    Timeout: 3
+  Api:
+    EndpointConfiguration: REGIONAL
+    Cors: 
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Requested-With,X-Requested-By,X-Api-Key'"
+Resources:
+  getStreams:
+    Type: AWS::Serverless::Function 
+    Properties:
+      # CodeUri: !Sub 's3://live-video-and-vod-platform-${AWS::Region}/artifacts/metadata.zip'
+      CodeUri:
+        Bucket: !Sub 'live-video-and-vod-platform-${AWS::Region}'
+        Key: 'artifacts/metadata.zip'
+      Handler: streams.handler
+      Runtime: nodejs12.x
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: video-metadata
+      Environment:
+        Variables:
+          SAMPLE_TABLE: video-metadata
+      Events:
+        getStreams:
+          Type: Api 
+          Properties:
+            Path: /videostream/{id}
+            Method: any
+        allOperations:
+          Type: Api 
+          Properties:
+            Path: /videostream
+            Method: post
+        allGetOperations:
+          Type: Api 
+          Properties:
+            Path: /videostream
+            Method: get
+
+Outputs:
+  WebEndpoint:
+    Description: "API Gateway endpoint URL for Prod stage"
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/
